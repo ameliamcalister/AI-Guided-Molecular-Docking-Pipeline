@@ -9,7 +9,8 @@ candidates across multiple autonomous optimisation cycles providing an binding a
 (kcal/mol).
 
 <img width="2844" height="1546" alt="image" src="https://github.com/user-attachments/assets/f05e4a43-fe17-4e70-ab90-d4c842227d3e" />
-<img width="866" height="521" alt="image" src="https://github.com/user-attachments/assets/af41afaf-c93a-40c7-aa97-053281eb2363" />
+<img width="2844" height="1546" alt="image" src="https://github.com/user-attachments/assets/baae5b71-8f94-49c1-92f2-f032cafcd8bf" />
+
 <img width="860" height="523" alt="image" src="https://github.com/user-attachments/assets/8fba674b-7739-4ff5-9fa0-a552a6bf9641" />
 <img width="888" height="540" alt="image" src="https://github.com/user-attachments/assets/3ade9db6-db1f-48cf-a68a-555d86f37e32" />
 <img width="888" height="540" alt="image" src="https://github.com/user-attachments/assets/edc2c149-d2ea-494c-8ff8-db3e12dace59" />
