@@ -8,6 +8,12 @@ modification suggestions, validates returned SMILES with RDKit, and can auto-doc
 candidates across multiple autonomous optimisation cycles providing an binding affinity output 
 (kcal/mol).
 
+<img width="866" height="521" alt="image" src="https://github.com/user-attachments/assets/af41afaf-c93a-40c7-aa97-053281eb2363" />
+<img width="860" height="523" alt="image" src="https://github.com/user-attachments/assets/8fba674b-7739-4ff5-9fa0-a552a6bf9641" />
+<img width="888" height="540" alt="image" src="https://github.com/user-attachments/assets/3ade9db6-db1f-48cf-a68a-555d86f37e32" />
+<img width="888" height="540" alt="image" src="https://github.com/user-attachments/assets/edc2c149-d2ea-494c-8ff8-db3e12dace59" />
+
+
 Two entry points are included:
 - `docking_pipeline.py` — command-line pipeline
 - `docking_app_v2.py` — Streamlit web interface (autonomous iterative loop, in-browser
