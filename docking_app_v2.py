@@ -93,10 +93,13 @@ def render_3dmol(pdbqt_content: str, receptor_content: str = "", height: int = 4
     """
     Render a docked pose with receptor context using 3Dmol.js.
 
-    - Ligand: best pose (first MODEL block of the PDBQT), yellow sticks
-    - Receptor: full backbone cartoon, blue
-    - Contact residues (within 8 A of any ligand atom): green sticks, computed
-      in Python so we do not depend on 3Dmol's `within` selector semantics
+    - Ligand: best pose (first MODEL block of the PDBQT), magenta-carbon
+      ball-and-stick, heteroatoms in element colours
+    - Receptor: full backbone cartoon, light blue, semi-transparent
+    - Contact residues (within 8 A of any ligand atom): green-carbon sticks,
+      computed in Python so we do not depend on 3Dmol's `within` selector
+    - Controls: Reset, Labels (contact residue names), Surface, Spin,
+      light/dark background toggle; colour legend in the corner
     """
     import json as _json
 
@@ -151,16 +154,41 @@ def render_3dmol(pdbqt_content: str, receptor_content: str = "", height: int = 4
                     break
 
     tpl = r"""
-<div style="position:relative;width:100%;height:__H__px;">
-  <div id="v3d" style="width:100%;height:100%;background:#0d1117;border-radius:8px;"></div>
+<style>
+  .v3d-wrap button {
+    font: 600 12px system-ui, -apple-system, sans-serif;
+    padding: 5px 10px; border-radius: 6px; cursor: pointer;
+    background: rgba(30,41,59,0.85); color: #f1f5f9;
+    border: 1px solid rgba(148,163,184,0.5);
+  }
+  .v3d-wrap button:hover { background: rgba(51,65,85,0.95); }
+  .v3d-wrap button.on { background: #2563eb; border-color: #60a5fa; }
+  .v3d-wrap.light button { background: rgba(255,255,255,0.9); color: #0f172a;
+                           border-color: rgba(100,116,139,0.6); }
+  .v3d-wrap.light button.on { background: #2563eb; color: #fff; }
+  .v3d-legend { position:absolute; bottom:10px; left:12px; pointer-events:none;
+                font: 12px system-ui, -apple-system, sans-serif; color:#e2e8f0;
+                background: rgba(15,23,42,0.6); padding:6px 9px; border-radius:6px;
+                line-height:1.55; }
+  .v3d-wrap.light .v3d-legend { color:#0f172a; background: rgba(255,255,255,0.8); }
+  .v3d-legend i { display:inline-block; width:10px; height:10px; border-radius:2px;
+                  margin-right:6px; vertical-align:-1px; }
+</style>
+<div class="v3d-wrap" id="wrap" style="position:relative;width:100%;height:__H__px;">
+  <div id="v3d" style="width:100%;height:100%;border-radius:8px;overflow:hidden;"></div>
   <div id="msg" style="position:absolute;top:10px;left:12px;color:#f87171;
-       font:12px ui-monospace,monospace;pointer-events:none;"></div>
-  <div id="info" style="position:absolute;bottom:10px;left:12px;color:#64748b;
-       font:11px ui-monospace,monospace;pointer-events:none;"></div>
-  <div style="position:absolute;top:8px;right:8px;display:flex;gap:6px;">
+       font:600 13px system-ui,sans-serif;pointer-events:none;"></div>
+  <div class="v3d-legend" id="legend">
+    <div><i style="background:#ff4fd8"></i>Ligand (best pose)</div>
+    <div><i style="background:#22e07a"></i><span id="ncon">0</span> contact residues (8 &Aring;)</div>
+    <div><i style="background:#8fb4ff"></i>Receptor</div>
+  </div>
+  <div style="position:absolute;top:8px;right:8px;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
     <button id="b-reset">Reset</button>
+    <button id="b-labels">Labels</button>
     <button id="b-surf">Surface</button>
     <button id="b-spin">Spin</button>
+    <button id="b-bg">Light bg</button>
   </div>
 </div>
 <script src="https://3Dmol.org/build/3Dmol-min.js"></script>
@@ -169,10 +197,29 @@ def render_3dmol(pdbqt_content: str, receptor_content: str = "", height: int = 4
   var RECEPTOR = __REC__;
   var LIGAND   = __LIG__;
   var CONTACTS = __CON__;
-  var v = null, recM = null, ligM = null, surfOn = false, spinning = false;
 
-  function msg(t)  { var e = document.getElementById('msg');  if (e) e.innerText = t; }
-  function info(t) { var e = document.getElementById('info'); if (e) e.innerText = t; }
+  // High-contrast palettes. Ligand carbons are magenta and contact carbons
+  // green so they never blend into the blue cartoon; heteroatoms keep their
+  // standard element colours (N blue, O red, S yellow...).
+  var THEMES = {
+    dark:  { bg: '#0b0f17', cartoon: '#8fb4ff', cartoonOpacity: 0.55,
+             surface: '#8fb4ff', label: { fontColor: '#ffffff', backgroundColor: '#0f172a', backgroundOpacity: 0.75 } },
+    light: { bg: '#f8fafc', cartoon: '#3b5fa8', cartoonOpacity: 0.45,
+             surface: '#6b8fd6', label: { fontColor: '#0f172a', backgroundColor: '#ffffff', backgroundOpacity: 0.85 } }
+  };
+  var LIG_SCHEME = { prop: 'elem', map: Object.assign({}, $3DmolElemMap(), { C: '#ff4fd8' }) };
+  var CON_SCHEME = { prop: 'elem', map: Object.assign({}, $3DmolElemMap(), { C: '#22e07a' }) };
+
+  function $3DmolElemMap() {
+    return { H: '#ffffff', N: '#4f8cff', O: '#ff4d4d', S: '#ffd23f', P: '#ff9f1c',
+             F: '#7cff6b', Cl: '#3ddc84', CL: '#3ddc84', Br: '#c0703a', BR: '#c0703a',
+             I: '#a14fd8' };
+  }
+
+  var v = null, recM = null, ligM = null;
+  var theme = 'dark', surfOn = false, spinning = false, labelsOn = false;
+
+  function msg(t) { var e = document.getElementById('msg'); if (e) e.innerText = t; }
 
   function contactSel() {
     var byChain = {};
@@ -185,63 +232,89 @@ def render_3dmol(pdbqt_content: str, receptor_content: str = "", height: int = 4
     return sels;
   }
 
+  function applyStyles() {
+    var T = THEMES[theme];
+    v.setBackgroundColor(T.bg);
+    if (recM) {
+      v.setStyle({ model: recM },
+                 { cartoon: { color: T.cartoon, opacity: T.cartoonOpacity } });
+      var sels = contactSel();
+      for (var i = 0; i < sels.length; i++) {
+        v.addStyle(sels[i], { stick: { radius: 0.18, colorscheme: CON_SCHEME } });
+      }
+    }
+    if (ligM) {
+      v.setStyle({ model: ligM },
+                 { stick:  { radius: 0.28, colorscheme: LIG_SCHEME },
+                   sphere: { scale: 0.28, colorscheme: LIG_SCHEME } });
+    }
+    v.removeAllLabels();
+    if (labelsOn && recM) {
+      for (var j = 0; j < CONTACTS.length; j++) {
+        var c = CONTACTS[j];
+        v.addLabel(c.resn + c.resi,
+                   Object.assign({ fontSize: 11, inFront: true, showBackground: true },
+                                 T.label),
+                   { model: recM, chain: c.chain, resi: parseInt(c.resi, 10), atom: 'CA' });
+      }
+    }
+    if (surfOn) {
+      v.removeAllSurfaces();
+      var ss = CONTACTS.length ? contactSel() : [{ model: recM }];
+      for (var k = 0; k < ss.length; k++) {
+        v.addSurface($3Dmol.SurfaceType.VDW, { opacity: 0.35, color: T.surface }, ss[k]);
+      }
+    }
+    v.render();
+  }
+
+  function home() {
+    if (ligM) { v.zoomTo({ model: ligM }); v.zoom(0.55); } else { v.zoomTo(); }
+  }
+
   function init() {
     try {
       v = $3Dmol.createViewer(document.getElementById('v3d'),
-                              { backgroundColor: '#0d1117' });
-
-      if (RECEPTOR.trim().length) {
-        recM = v.addModel(RECEPTOR, 'pdb');
-        v.setStyle({ model: recM }, { cartoon: { color: '#4a7fd4', opacity: 0.75 } });
-      }
-
-      if (LIGAND.trim().length > 0) {
-        ligM = v.addModel(LIGAND, 'pdb');
-        v.setStyle({ model: ligM },
-                   { stick:  { radius: 0.22, colorscheme: 'yellowCarbon' },
-                     sphere: { radius: 0.32, colorscheme: 'yellowCarbon' } });
-      }
-
-      if (recM && CONTACTS.length) {
-        var sels = contactSel();
-        for (var i = 0; i < sels.length; i++) {
-          v.addStyle(sels[i], { stick: { radius: 0.12, colorscheme: 'greenCarbon' } });
-        }
-      }
-
-      if (ligM) {
-        v.zoomTo({ model: ligM });
-        v.zoom(0.55);
-        info(CONTACTS.length + ' contact residues within 8 A');
-      } else {
-        v.zoomTo();
-        msg('No valid docked pose for this compound');
-      }
+                              { backgroundColor: THEMES[theme].bg });
+      if (RECEPTOR.trim().length) recM = v.addModel(RECEPTOR, 'pdb');
+      if (LIGAND.trim().length)   ligM = v.addModel(LIGAND, 'pdb');
+      document.getElementById('ncon').innerText = CONTACTS.length;
+      applyStyles();
+      home();
       v.render();
+      if (!ligM) msg('No valid docked pose for this compound');
+      window.__v3dReady = { ligAtoms: ligM ? ligM.selectedAtoms({}).length : 0,
+                            recAtoms: recM ? recM.selectedAtoms({}).length : 0,
+                            contacts: CONTACTS.length };
     } catch (e) {
       msg('Viewer error: ' + e.message);
+      window.__v3dReady = { error: e.message };
     }
   }
 
+  function toggle(id, on) { document.getElementById(id).classList.toggle('on', on); }
+
   document.getElementById('b-reset').onclick = function () {
-    if (!v) return;
-    if (ligM) { v.zoomTo({ model: ligM }); v.zoom(0.55); } else { v.zoomTo(); }
-    v.render();
+    if (!v) return; home(); v.render();
+  };
+  document.getElementById('b-labels').onclick = function () {
+    if (!v) return; labelsOn = !labelsOn; toggle('b-labels', labelsOn); applyStyles();
   };
   document.getElementById('b-surf').onclick = function () {
     if (!v || !recM) return;
-    if (surfOn) { v.removeAllSurfaces(); surfOn = false; }
-    else {
-      var sels = CONTACTS.length ? contactSel() : [{ model: recM }];
-      for (var i = 0; i < sels.length; i++) {
-        v.addSurface($3Dmol.SurfaceType.VDW, { opacity: 0.55, color: '#4a7fd4' }, sels[i]);
-      }
-      surfOn = true;
-    }
-    v.render();
+    surfOn = !surfOn; toggle('b-surf', surfOn);
+    if (!surfOn) v.removeAllSurfaces();
+    applyStyles();
   };
   document.getElementById('b-spin').onclick = function () {
-    if (!v) return; spinning = !spinning; v.spin(spinning);
+    if (!v) return; spinning = !spinning; toggle('b-spin', spinning); v.spin(spinning);
+  };
+  document.getElementById('b-bg').onclick = function () {
+    if (!v) return;
+    theme = theme === 'dark' ? 'light' : 'dark';
+    document.getElementById('wrap').classList.toggle('light', theme === 'light');
+    this.innerText = theme === 'dark' ? 'Light bg' : 'Dark bg';
+    applyStyles();
   };
 
   // The iframe 'load' event has usually already fired by the time this inline
@@ -249,7 +322,8 @@ def render_3dmol(pdbqt_content: str, receptor_content: str = "", height: int = 4
   var tries = 0;
   (function wait() {
     if (typeof $3Dmol !== 'undefined') { init(); return; }
-    if (++tries > 100) { msg('Could not load 3Dmol.js (network blocked?)'); return; }
+    if (++tries > 100) { msg('Could not load 3Dmol.js (network blocked?)');
+                         window.__v3dReady = { error: 'load' }; return; }
     setTimeout(wait, 100);
   })();
 })();
