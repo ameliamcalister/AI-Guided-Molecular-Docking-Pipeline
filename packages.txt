@@ -1,16 +1,2 @@
-# Debian packages for Streamlit Community Cloud, which installs anything listed
-# here with apt-get. These two are command-line tools the pipeline shells out
-# to, not Python packages, so they cannot go in requirements.txt.
-#
-# Community Cloud runs Debian 11 "bullseye", which carries:
-#   autodock-vina 1.1.2  (provides `vina`)
-#   openbabel     3.1.1  (provides `obabel`)
-#
-# Note 1.1.2, not the 1.2.x used in development. The pipeline only passes flags
-# that exist in both (--receptor --ligand --out --center_* --size_*
-# --exhaustiveness --num_modes --energy_range --seed), so it runs unchanged,
-# but the two versions do not give identical scores. Each run records the exact
-# version it used via src/provenance, so a score can always be traced to the
-# binary that produced it.
 autodock-vina
 openbabel

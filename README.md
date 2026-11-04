@@ -66,6 +66,11 @@ anywhere that only serves static files. It is deployed on **Streamlit Community 
 which installs Debian packages from `packages.txt` alongside the pip packages in
 `requirements.txt`.
 
+`packages.txt` must contain bare package names and nothing else. Community Cloud
+passes the file's words straight to `apt-get install`, and it does not strip
+comments: a `#` line mentioning a flag like `--ligand` makes apt fail with
+`Command line option --ligand is not understood`, and the whole install aborts.
+
 1. Push this repository to GitHub (public, or private with Community Cloud granted access).
 2. At [share.streamlit.io](https://share.streamlit.io), deploy `docking_app_v2.py` from
    this repository.
@@ -85,8 +90,10 @@ What to expect from the free tier:
 - **The disk is not persistent.** `data/runs.db` and saved poses are lost on every
   redeploy or wake-from-sleep, so download each cycle's results if you want to keep them.
 - **The app sleeps after 12 hours without traffic** and wakes on the next visit.
-- **Vina 1.1.2**, the version Debian 11 carries, rather than the 1.2.x used in
-  development. See `packages.txt` for why that is safe and what it costs.
+- **Vina 1.2.7 and Open Babel 3.1.1**, from Debian 13 "trixie" — the same Vina
+  version used in development, so scores are directly comparable. (The Streamlit
+  docs still say Debian 11; the build log says otherwise. Trust the log.) Every
+  run records the version it used via `src/provenance`.
 - **Visitors spend the API key's credits.** Set a spend limit on a dedicated key.
 
 `Dockerfile` is still the way to self-host or run it locally with a persistent volume,

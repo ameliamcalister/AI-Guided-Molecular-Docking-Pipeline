@@ -2,9 +2,9 @@
 # Cloud, which installs the same two tools from packages.txt; see README.
 #
 # Ubuntu 24.04 ships both AutoDock Vina and Open Babel as apt packages, which
-# the pipeline calls as command-line tools. Note this gives Vina 1.2.x, while
-# Community Cloud's Debian 11 gives 1.1.2, so the two deployments will not
-# produce identical scores. Each run records which it used.
+# the pipeline calls as command-line tools. Community Cloud runs Debian 13
+# "trixie", whose autodock-vina is 1.2.7, so both deployments are on the same
+# Vina release. Each run records the version it used either way.
 #
 # Reproducibility: the exact Vina version is recorded with every run by
 # src/provenance, and a built image is immutable, so scores are reproducible
