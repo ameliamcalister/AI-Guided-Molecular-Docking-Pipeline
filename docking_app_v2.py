@@ -120,21 +120,56 @@ def render_3dmol(pdbqt_content: str, receptor_content: str = "", height: int = 4
         "ZN": "Zn", "CA": "Ca", "FE": "Fe", "CU": "Cu", "SE": "Se",
     }
 
-    def _pdb_line(l: str) -> str:
-        """Rewrite one PDBQT atom line as PDB with a correct element field.
+    _ELEMENTS = {
+        "H", "B", "C", "N", "O", "F", "Si", "P", "S", "Cl", "Se", "Br", "I",
+        "Li", "Na", "Mg", "Al", "K", "Ca", "Ti", "Cr", "Mn", "Fe", "Co", "Ni",
+        "Cu", "Zn", "As", "Mo", "Ag", "Cd", "Pt", "Au", "Hg",
+    }
 
-        Columns 71-76 hold the partial charge and 78-79 the AutoDock type;
-        both are dropped, and the element is written into columns 77-78 where
-        3Dmol expects it.
+    def _element(l: str) -> str:
+        """Work out the element of one atom line, PDBQT or plain PDB.
+
+        The two formats disagree about these columns: PDBQT puts a partial
+        charge in 71-76 and its own atom type in 78-79, while plain PDB leaves
+        71-76 blank and puts the element in 77-78. Reading the wrong one turns
+        a calcium ion ("CA") into a carbon, so pick the format per line by
+        testing whether the charge column holds a number.
         """
-        ad = l[77:79].strip().upper() if len(l) > 77 else ""
-        elem = _AD_ELEM.get(ad, "")
-        if not elem:
-            # Fall back to the atom name, as a normal PDB reader would.
-            name = l[12:16].strip()
-            elem = (name[:2].capitalize() if name[:2].upper() in _AD_ELEM
-                    else name[:1].upper())
-        return f"{l[:76]:<76}{elem:>2}"
+        charge = l[70:76].strip() if len(l) > 70 else ""
+        is_pdbqt = False
+        if charge:
+            try:
+                float(charge)
+                is_pdbqt = True
+            except ValueError:
+                is_pdbqt = False
+
+        if is_pdbqt:
+            elem = _AD_ELEM.get(l[77:79].strip().upper() if len(l) > 77 else "", "")
+            if elem:
+                return elem
+        else:
+            cand = (l[76:78].strip() if len(l) > 76 else "").capitalize()
+            if cand in _ELEMENTS:
+                return cand
+
+        # No usable element column. Guess from the atom name, the way a PDB
+        # reader does: ATOM records are standard residues, where the name
+        # starts with the element ("CA" is an alpha carbon, not calcium).
+        name = l[12:16].strip()
+        if not name:
+            return ""
+        if l.startswith("HETATM"):
+            two = name[:2].capitalize()
+            if two in _ELEMENTS:
+                return two
+        return name[:1].upper() if name[:1].upper() in _ELEMENTS else ""
+
+    def _pdb_line(l: str) -> str:
+        """Rewrite one atom line as PDB with the element in columns 77-78,
+        dropping the PDBQT charge and type columns that would otherwise sit
+        where 3Dmol looks for the element."""
+        return f"{l[:76]:<76}{_element(l):>2}"
 
     # ── Ligand: first MODEL block = best pose ─────────────────────────────────
     lines = (pdbqt_content or "").split("\n")
