@@ -8,12 +8,14 @@ modification suggestions, validates returned SMILES with RDKit, and can auto-doc
 candidates across multiple autonomous optimisation cycles providing an binding affinity output 
 (kcal/mol).
 
-<img width="2844" height="1546" alt="image" src="https://github.com/user-attachments/assets/f05e4a43-fe17-4e70-ab90-d4c842227d3e" />
-<img width="2844" height="1546" alt="image" src="https://github.com/user-attachments/assets/baae5b71-8f94-49c1-92f2-f032cafcd8bf" />
+<img width="1422" height="773" alt="Screenshot 2026-11-04 at 10 54 16" src="https://github.com/user-attachments/assets/3edabc83-6f75-4b8f-9bdd-f4c3c4d35848" />
+<img width="1422" height="773" alt="Screenshot 2026-11-04 at 10 55 14" src="https://github.com/user-attachments/assets/01a061ba-313c-46de-a2c7-c00a15871880" />
+<img width="1422" height="773" alt="Screenshot 2026-11-04 at 11 05 56" src="https://github.com/user-attachments/assets/8899008f-bd27-42ea-8197-56c027e3655a" />
+<img width="1422" height="773" alt="Screenshot 2026-11-04 at 11 06 27" src="https://github.com/user-attachments/assets/76323b6b-2a49-4f93-8203-78602059eef0" />
+<img width="1422" height="773" alt="Screenshot 2026-11-04 at 11 06 34" src="https://github.com/user-attachments/assets/7d5bcd60-92c8-40ba-a956-7c88f47fc052" />
+<img width="1422" height="773" alt="Screenshot 2026-11-04 at 11 08 21" src="https://github.com/user-attachments/assets/6dcc1792-fce8-4a20-9829-4eef7829a5ad" />
+<img width="1422" height="773" alt="Screenshot 2026-11-04 at 11 08 30" src="https://github.com/user-attachments/assets/6e75a621-165e-4a59-aae8-a49351f24d3d" />
 
-<img width="860" height="523" alt="image" src="https://github.com/user-attachments/assets/8fba674b-7739-4ff5-9fa0-a552a6bf9641" />
-<img width="888" height="540" alt="image" src="https://github.com/user-attachments/assets/3ade9db6-db1f-48cf-a68a-555d86f37e32" />
-<img width="888" height="540" alt="image" src="https://github.com/user-attachments/assets/edc2c149-d2ea-494c-8ff8-db3e12dace59" />
 
 
 Two entry points are included:
