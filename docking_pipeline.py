@@ -393,11 +393,21 @@ def get_ligand_centre(ligand_pdbqt: str) -> tuple | None:
 # RDKIT VALIDATION
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def validate_smiles(smiles: str) -> tuple[bool, object]:
-    if not RDKIT_AVAILABLE:
-        return True, None
-    mol = Chem.MolFromSmiles(smiles.strip())
-    return (True, mol) if mol else (False, None)
+from rdkit import Chem
+from rdkit import RDLogger
+from rdkit.Chem import Descriptors, rdMolDescriptors
+RDLogger.DisableLog("rdApp.*")
+
+
+def validate_smiles(smiles: str):
+    """Return (valid: bool, mol or None)."""
+    if not smiles or not smiles.strip():
+        return False, None
+    try:
+        mol = Chem.MolFromSmiles(smiles.strip())
+    except Exception:
+        return False, None
+    return (mol is not None), mol
 
 
 def calculate_properties(mol) -> dict:
@@ -485,6 +495,27 @@ def validate_response_smiles(response_text: str) -> tuple[str, list[dict]]:
     return response_text + "\n" + "\n".join(lines), results
 
 
+def get_valid_suggestion(prompt, system_prompt, backend, model, max_retries=2) -> str:
+    """Call the LLM; if any suggested SMILES fail RDKit, re-prompt with the failures."""
+    text = call_llm(prompt, system_prompt, backend, model)
+    for _ in range(max_retries):
+        _, results = validate_response_smiles(text)
+        bad = [r["smiles"] for r in results if not r["valid"]]
+        if results and not bad:
+            break
+        feedback = "\n".join(f"- {s}" for s in bad) if bad else "- No SMILES were detected in your reply."
+        text = call_llm(
+            prompt
+            + "\n\nThese SMILES from your previous reply could not be parsed by RDKit:\n"
+            + feedback
+            + "\n\nRewrite ALL suggestions with valid SMILES. Open and close each ring-closure "
+              "digit exactly once before reusing it, and keep modifications conservative "
+              "(single substitutions on the reference scaffold; do not redesign the core ring system).",
+            system_prompt, backend, model,
+        )
+    return text
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # AUTO-DOCKING
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -522,9 +553,10 @@ def smiles_to_pdbqt(smiles: str, name: str, work_dir: Path) -> Path | None:
     return pdbqt_path
 
 
+
 def run_vina(
     pdbqt_path: Path, name: str, work_dir: Path,
-    receptor: str, grid: dict, exhaustiveness: int = 8,
+    receptor: str, grid: dict, exhaustiveness: int = 8, seed: int = 0,
 ) -> tuple[float | None, Path | None]:
     vina      = find_tool(VINA_PATH, "vina")
     out_pdbqt = work_dir / f"{name}_docked.pdbqt"
@@ -544,6 +576,8 @@ def run_vina(
         "--num_modes",      "9",
         "--energy_range",   "3",
     ]
+    if seed:
+        cmd += ["--seed", str(seed)]
     print(f"    Running Vina on {name}...")
     result = subprocess.run(cmd, capture_output=True, text=True)
     combined = result.stdout + result.stderr
@@ -738,12 +772,19 @@ def call_llm(prompt: str, system: str, backend: str = "claude", model: str = "")
 def _call_claude(prompt: str, system: str, model: str) -> str:
     if not ANTHROPIC_AVAILABLE:
         raise ImportError("anthropic package not installed. Run: pip install anthropic")
-    client   = anthropic.Anthropic()
+    client = anthropic.Anthropic(
+        default_headers={"Accept-Encoding": "identity"}  # workaround for the decompressor error
+    )
     response = client.messages.create(
-        model=model, max_tokens=1500, system=system,
+        model=model, max_tokens=4000, system=system,
         messages=[{"role": "user", "content": prompt}],
     )
     return response.content[0].text
+
+client = anthropic.Anthropic(
+    default_headers={"Accept-Encoding": "identity"}
+)
+
 
 def _call_ollama(prompt: str, system: str, model: str) -> str:
     payload = json.dumps({

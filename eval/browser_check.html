@@ -1,0 +1,101 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>3Dmol viewer: browser pass</title>
+<style>
+  :root { color-scheme: dark; }
+  body { background:#0b0f17; color:#e2e8f0; font:14px system-ui,-apple-system,sans-serif;
+         margin:0; padding:24px; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  p.sub { color:#94a3b8; margin:0 0 18px; font-size:13px; }
+  #summary { font-size:16px; font-weight:600; margin:14px 0; }
+  table { border-collapse:collapse; width:100%; max-width:900px; font-size:13px; }
+  th,td { text-align:left; padding:6px 10px; border-bottom:1px solid #1e293b; }
+  th { color:#94a3b8; font-weight:600; }
+  td.n { text-align:right; font-variant-numeric:tabular-nums; }
+  .ok { color:#22e07a; } .bad { color:#f87171; }
+  #stage { position:fixed; left:-9999px; top:0; width:700px; height:500px; border:0; }
+</style>
+</head>
+<body>
+<h1>3Dmol viewer: browser pass</h1>
+<p class="sub">Loads every page written by <code>eval_viewer.py</code>, waits for 3Dmol to
+finish drawing, and checks the rendered scene against the counts Python computed.
+Serve this directory over HTTP and open this file from that server.</p>
+<div id="summary">running…</div>
+<table id="rows">
+  <thead><tr><th>case</th><th class="n">ligand atoms</th><th class="n">contacts</th>
+  <th>notes</th></tr></thead>
+  <tbody></tbody>
+</table>
+<iframe id="stage"></iframe>
+
+<script>
+(async function () {
+  const summary = document.getElementById('summary');
+  const tbody = document.querySelector('#rows tbody');
+  const frame = document.getElementById('stage');
+
+  let manifest;
+  try {
+    manifest = await (await fetch('out/manifest.json')).json();
+  } catch (e) {
+    try { manifest = await (await fetch('manifest.json')).json(); }
+    catch (e2) {
+      summary.innerHTML = '<span class="bad">Could not load manifest.json. ' +
+        'Run eval_viewer.py first, and open this page over HTTP, not as a file.</span>';
+      return;
+    }
+  }
+  // Pages sit in out/ when this file is served from eval/, or alongside it
+  // when out/ itself is the document root.
+  const probe = await fetch('out/' + manifest[0].file, { method: 'HEAD' })
+                      .then(r => r.ok).catch(() => false);
+  const base = probe ? 'out/' : '';
+
+  let passed = 0;
+  for (const c of manifest) {
+    frame.src = base + c.file;
+    await new Promise(r => { frame.onload = r; });
+    const w = frame.contentWindow;
+    for (let i = 0; i < 75 && !w.__v3dReady; i++) {
+      await new Promise(r => setTimeout(r, 200));
+    }
+    const d = w.__v3dReady || {};
+    const msg = (w.document.getElementById('msg') || {}).innerText || '';
+    const canvas = !!w.document.querySelector('#v3d canvas');
+    const legend = (w.document.getElementById('ncon') || {}).innerText;
+    const wantAtoms = c.browser_atoms !== undefined ? c.browser_atoms : c.lig_atoms;
+
+    const errs = [];
+    if (!w.__v3dReady) errs.push('never finished drawing');
+    if (d.error) errs.push('js error: ' + d.error);
+    if (!canvas) errs.push('no canvas');
+    if (d.ligAtoms !== wantAtoms) errs.push('atoms ' + d.ligAtoms + ' != ' + wantAtoms);
+    if (d.contacts !== c.contacts) errs.push('contacts ' + d.contacts + ' != ' + c.contacts);
+    if (String(legend) !== String(c.contacts)) errs.push('legend shows ' + legend);
+    if (wantAtoms > 0 && msg) errs.push('unexpected message: ' + msg);
+    if (wantAtoms === 0 && !msg) errs.push('empty pose, no warning shown');
+
+    if (!errs.length) passed++;
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td>' + c.name + '</td>' +
+      '<td class="n">' + (d.ligAtoms === undefined ? '–' : d.ligAtoms) + '</td>' +
+      '<td class="n">' + (d.contacts === undefined ? '–' : d.contacts) + '</td>' +
+      '<td class="' + (errs.length ? 'bad' : 'ok') + '">' +
+        (errs.length ? errs.join('; ') : 'ok') + '</td>';
+    tbody.appendChild(tr);
+    summary.textContent = passed + '/' + tbody.children.length + ' passed so far…';
+  }
+
+  summary.innerHTML = passed === manifest.length
+    ? '<span class="ok">' + passed + '/' + manifest.length + ' rendered correctly</span>'
+    : '<span class="bad">' + passed + '/' + manifest.length + ' rendered correctly</span>';
+  frame.src = 'about:blank';
+})();
+</script>
+</body>
+</html>

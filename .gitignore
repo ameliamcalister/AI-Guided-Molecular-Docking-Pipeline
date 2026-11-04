@@ -20,3 +20,14 @@ history*.json
 
 # OS
 .DS_Store
+
+# Run history, saved poses, test output
+data/
+runs.db
+.pytest_cache/
+.coverage
+
+# Viewer eval: generated ligands and pages
+eval/corpus/
+eval/out/
+eval/targets/

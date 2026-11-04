@@ -1,0 +1,118 @@
+--- /home/claude/originals/docking_app_v2.py	2026-10-10 11:01:21.782078927 +0000
++++ docking_app_v2.py	2026-10-10 11:03:22.499759865 +0000
+@@ -79,6 +79,12 @@
+     PIPELINE_LOADED = False
+     PIPELINE_ERROR  = str(e)
+ 
++# ── Run provenance (SQLite) ───────────────────────────────────────────────────
++import hashlib
++sys.path.insert(0, str(pipeline_dir / "src"))
++from provenance import RunStore
++RUNS_DB = os.environ.get("RUNS_DB", str(pipeline_dir / "data" / "runs.db"))
++
+ # ═══════════════════════════════════════════════════════════════════════════════
+ # 3DMOL VIEWER HELPER
+ # ═══════════════════════════════════════════════════════════════════════════════
+@@ -408,6 +414,7 @@
+     work_dir: Path,
+     exhaustiveness: int = 8,
+     name: str = "initial",
++    seed: int = 0,
+ ) -> tuple[float | None, Path | None, Path | None]:
+     """
+     Convert SMILES → PDBQT and dock against receptor.
+@@ -416,7 +423,7 @@
+     pdbqt = smiles_to_pdbqt(smiles, name, work_dir)
+     if pdbqt is None:
+         return None, None, None
+-    affinity, docked = run_vina(pdbqt, name, work_dir, str(receptor_path), grid, exhaustiveness)
++    affinity, docked = run_vina(pdbqt, name, work_dir, str(receptor_path), grid, exhaustiveness, seed=seed)
+     log_path = work_dir / f"{name}_vina.log"
+     return affinity, docked, log_path if log_path.exists() else None
+ 
+@@ -513,9 +520,7 @@
+             docking_results.append({**result, "docked": False, "reason": "obabel failed"})
+             continue
+ 
+-        # Add seed to grid for reproducibility
+-        grid_with_seed = {**grid, "seed": vina_seed}
+-        affinity, docked = run_vina(pdbqt_out, name_i, dock_dir, str(receptor_path), grid, exhaustiveness)
++        affinity, docked = run_vina(pdbqt_out, name_i, dock_dir, str(receptor_path), grid, exhaustiveness, seed=vina_seed)
+         if docked is None:
+             docking_results.append({**result, "docked": False, "reason": "Vina failed"})
+             continue
+@@ -705,6 +710,7 @@
+             work_dir=tmp_path,
+             exhaustiveness=exhaustiveness,
+             name="initial",
++            seed=vina_seed,
+         )
+         if init_docked is None:
+             st.error("❌ Initial docking failed. Check your SMILES string and receptor file.")
+@@ -768,6 +774,28 @@
+ progress = st.progress(0)
+ status   = st.empty()
+ 
++# Record this run: parameters, software versions, and every docked compound.
++store  = RunStore(RUNS_DB)
++run_id = store.start_run(
++    target=target_name,
++    params={
++        "pdb_id": pdb_id or "unknown", "grid": grid,
++        "exhaustiveness": exhaustiveness, "vina_seed": vina_seed,
++        "backend": backend, "model": model_override or "default",
++        "n_suggestions": n_suggestions, "n_cycles": n_total_cycles,
++        "mode": mode, "target_affinity": target_aff,
++        "auto_loop": auto_loop, "plateau_stop": plateau_stop,
++        "numbering_offset": int(numbering_offset),
++        "input_smiles": current_smiles, "chembl_id": resolved_chembl_id,
++        "receptor_sha256": hashlib.sha256(receptor_bytes).hexdigest(),
++        "history_input": history_input,
++    },
++)
++store.add_result(run_id, ligand_id="input", smiles=current_smiles,
++                 score=log_data["best_affinity"], iteration=0,
++                 extra={"role": "input compound"})
++run_status = "cancelled"  # stays 'cancelled' if Streamlit interrupts the script mid-run
++
+ try:
+     for cycle_i in range(1, n_total_cycles + 1):
+ 
+@@ -810,6 +838,21 @@
+         )
+         all_cycle_results.append(cycle_result)
+ 
++        for j, dr in enumerate(cycle_result["docking_results"], 1):
++            pose_path = None
++            if dr.get("pdbqt_path"):  # copy out of the temp folder, which is deleted at the end
++                pose_dir = Path(RUNS_DB).parent / "poses" / run_id
++                pose_dir.mkdir(parents=True, exist_ok=True)
++                pose_path = str(shutil.copy(dr["pdbqt_path"], pose_dir / Path(dr["pdbqt_path"]).name))
++            store.add_result(
++                run_id, ligand_id=dr.get("compound_name") or f"c{cycle_i}_s{j}",
++                smiles=dr["smiles"], score=dr.get("affinity"), iteration=cycle_i,
++                pose_path=pose_path,
++                extra={"docked": bool(dr.get("docked")), "reason": dr.get("reason"),
++                       "props": dr.get("props"), "issues": dr.get("issues"),
++                       "mode": cycle_result["iter_mode"]},
++            )
++
+         # Update history
+         if cycle_result["best_affinity"]:
+             history.append(abs(cycle_result["best_affinity"]))
+@@ -978,11 +1021,15 @@
+ 
+     progress.progress(100)
+     status.markdown("✅ Pipeline complete.")
++    run_status = "completed"
+ 
+ except Exception as e:
++    run_status = "failed"
+     st.error(f"Pipeline error: {e}")
+     import traceback
+     st.code(traceback.format_exc())
+ 
+ finally:
++    store.finish_run(run_id, run_status)
++    store.close()
+     shutil.rmtree(tmp_dir, ignore_errors=True)
