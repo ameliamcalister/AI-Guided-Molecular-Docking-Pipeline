@@ -1,15 +1,3 @@
----
-title: AI-Guided Docking Pipeline
-emoji: 🧬
-colorFrom: blue
-colorTo: green
-sdk: docker
-app_port: 8501
-pinned: false
-license: mit
-short_description: AI-guided structure-based drug design with AutoDock Vina
----
-
 # AI-Guided Docking Pipeline
 
 A generalised, AI-guided structure-based drug design pipeline. Works with any protein
@@ -69,6 +57,40 @@ Upload a receptor PDBQT, enter target and grid details (pre-filled with MRP1/5UJ
 optionally upload a Vina log and docked ligand PDBQT, and run one or more autonomous
 optimisation cycles interactively, with 3D pose visualisation and per-cycle downloads.
 Requires `docking_pipeline.py` in the same folder.
+
+## Public deployment
+
+The app needs two command-line binaries (`vina`, `obabel`), so it cannot be hosted
+anywhere that only serves static files. It is deployed on **Streamlit Community Cloud**,
+which installs Debian packages from `packages.txt` alongside the pip packages in
+`requirements.txt`.
+
+1. Push this repository to GitHub (public, or private with Community Cloud granted access).
+2. At [share.streamlit.io](https://share.streamlit.io), deploy `docking_app_v2.py` from
+   this repository.
+3. Under **Advanced settings → Secrets**, add the API key in TOML form:
+
+   ```toml
+   ANTHROPIC_API_KEY = "sk-ant-..."
+   ```
+
+   Root-level secrets are also exported as environment variables, which is how the
+   Anthropic SDK picks the key up — no code change needed.
+
+What to expect from the free tier:
+
+- **2 CPU cores, ~2.7 GB RAM.** Vina is CPU-bound, so a full ten-cycle run takes a
+  while and two simultaneous users make each other slower.
+- **The disk is not persistent.** `data/runs.db` and saved poses are lost on every
+  redeploy or wake-from-sleep, so download each cycle's results if you want to keep them.
+- **The app sleeps after 12 hours without traffic** and wakes on the next visit.
+- **Vina 1.1.2**, the version Debian 11 carries, rather than the 1.2.x used in
+  development. See `packages.txt` for why that is safe and what it costs.
+- **Visitors spend the API key's credits.** Set a spend limit on a dedicated key.
+
+`Dockerfile` is still the way to self-host or run it locally with a persistent volume,
+and is what you would use on a paid host; Hugging Face Spaces now requires a paid plan
+to create a Docker Space.
 
 ## Command-line usage
 

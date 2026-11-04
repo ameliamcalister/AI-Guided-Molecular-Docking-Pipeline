@@ -1,6 +1,10 @@
+# Self-hosting and local use. The public deployment is on Streamlit Community
+# Cloud, which installs the same two tools from packages.txt; see README.
+#
 # Ubuntu 24.04 ships both AutoDock Vina and Open Babel as apt packages, which
-# the pipeline calls as command-line tools. They are the reason this runs as a
-# container rather than on Streamlit Community Cloud.
+# the pipeline calls as command-line tools. Note this gives Vina 1.2.x, while
+# Community Cloud's Debian 11 gives 1.1.2, so the two deployments will not
+# produce identical scores. Each run records which it used.
 #
 # Reproducibility: the exact Vina version is recorded with every run by
 # src/provenance, and a built image is immutable, so scores are reproducible
@@ -52,4 +56,7 @@ COPY --chown=user:user .streamlit ./.streamlit
 USER user
 
 EXPOSE 8501
-CMD ["streamlit", "run", "docking_app_v2.py"]
+# Server binding lives here rather than in .streamlit/config.toml, so that a
+# managed host reading that file is free to choose its own port.
+CMD ["streamlit", "run", "docking_app_v2.py", \
+     "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true"]
