@@ -89,19 +89,52 @@ RUNS_DB = os.environ.get("RUNS_DB", str(pipeline_dir / "data" / "runs.db"))
 # 3DMOL VIEWER HELPER
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def render_3dmol(pdbqt_content: str, receptor_content: str = "", height: int = 480) -> str:
+def render_3dmol(pdbqt_content: str, receptor_content: str = "", height: int = 480,
+                 contact_cutoff: float = 5.0) -> str:
     """
     Render a docked pose with receptor context using 3Dmol.js.
 
     - Ligand: best pose (first MODEL block of the PDBQT), magenta-carbon
       ball-and-stick, heteroatoms in element colours
     - Receptor: full backbone cartoon, light blue, semi-transparent
-    - Contact residues (within 8 A of any ligand atom): green-carbon sticks,
-      computed in Python so we do not depend on 3Dmol's `within` selector
+    - Contact residues (within `contact_cutoff` A of any ligand atom):
+      green-carbon side-chain sticks, computed in Python so we do not depend
+      on 3Dmol's `within` selector
     - Controls: Reset, Labels (contact residue names), Surface, Spin,
       light/dark background toggle; colour legend in the corner
+
+    contact_cutoff defaults to 5 A, the usual definition of a contact. Raising
+    it towards 8 A pulls in a second shell of residues that tends to bury the
+    ligand behind green sticks.
     """
     import json as _json
+
+    # AutoDock atom types -> real elements. PDBQT keeps its type in the same
+    # columns PDB uses for the element, so without this 3Dmol sees "A" or "HD"
+    # as the element, colours the atom as unknown and can drop it entirely.
+    _AD_ELEM = {
+        "A": "C", "C": "C", "N": "N", "NA": "N", "NS": "N",
+        "O": "O", "OA": "O", "OS": "O", "S": "S", "SA": "S",
+        "H": "H", "HD": "H", "HS": "H", "F": "F", "P": "P",
+        "CL": "Cl", "BR": "Br", "I": "I", "MG": "Mg", "MN": "Mn",
+        "ZN": "Zn", "CA": "Ca", "FE": "Fe", "CU": "Cu", "SE": "Se",
+    }
+
+    def _pdb_line(l: str) -> str:
+        """Rewrite one PDBQT atom line as PDB with a correct element field.
+
+        Columns 71-76 hold the partial charge and 78-79 the AutoDock type;
+        both are dropped, and the element is written into columns 77-78 where
+        3Dmol expects it.
+        """
+        ad = l[77:79].strip().upper() if len(l) > 77 else ""
+        elem = _AD_ELEM.get(ad, "")
+        if not elem:
+            # Fall back to the atom name, as a normal PDB reader would.
+            name = l[12:16].strip()
+            elem = (name[:2].capitalize() if name[:2].upper() in _AD_ELEM
+                    else name[:1].upper())
+        return f"{l[:76]:<76}{elem:>2}"
 
     # ── Ligand: first MODEL block = best pose ─────────────────────────────────
     lines = (pdbqt_content or "").split("\n")
@@ -125,20 +158,18 @@ def render_3dmol(pdbqt_content: str, receptor_content: str = "", height: int = 4
         except (ValueError, IndexError):
             pass
 
-    # Truncate to 78 cols: drops the AutoDock type/charge columns so 3Dmol
-    # infers elements from atom names instead of choking on "OA"/"HD"/"NA".
-    ligand_pdb = "\n".join(l[:78] for l in model_lines)
+    ligand_pdb = "\n".join(_pdb_line(l) for l in model_lines)
 
     # ── Receptor: keep ALL atoms. Cartoon needs intact backbone connectivity,
     #    so the old rec_all[::4] sampling could never render a cartoon. ───────
     rec_all = [l for l in (receptor_content or "").split("\n")
                if l.startswith(("ATOM", "HETATM"))]
-    receptor_pdb = "\n".join(l[:78] for l in rec_all)
+    receptor_pdb = "\n".join(_pdb_line(l) for l in rec_all)
 
-    # ── Contact residues within 8 A of ANY ligand atom (not the centroid) ────
+    # ── Contact residues within the cutoff of ANY ligand atom (not centroid) ─
     contacts = []
     if lig_coords:
-        seen, cutoff_sq = set(), 8.0 ** 2
+        seen, cutoff_sq = set(), float(contact_cutoff) ** 2
         for line in rec_all:
             try:
                 rx, ry, rz = float(line[30:38]), float(line[38:46]), float(line[46:54])
@@ -180,8 +211,8 @@ def render_3dmol(pdbqt_content: str, receptor_content: str = "", height: int = 4
        font:600 13px system-ui,sans-serif;pointer-events:none;"></div>
   <div class="v3d-legend" id="legend">
     <div><i style="background:#ff4fd8"></i>Ligand (best pose)</div>
-    <div><i style="background:#22e07a"></i><span id="ncon">0</span> contact residues (8 &Aring;)</div>
-    <div><i style="background:#8fb4ff"></i>Receptor</div>
+    <div><i style="background:#22e07a"></i><span id="ncon">0</span> contact residues (__CUT__ &Aring;)</div>
+    <div><i id="sw-rec" style="background:#8fb4ff"></i>Receptor</div>
   </div>
   <div style="position:absolute;top:8px;right:8px;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
     <button id="b-reset">Reset</button>
@@ -204,7 +235,7 @@ def render_3dmol(pdbqt_content: str, receptor_content: str = "", height: int = 4
   var THEMES = {
     dark:  { bg: '#0b0f17', cartoon: '#8fb4ff', cartoonOpacity: 0.55,
              surface: '#8fb4ff', label: { fontColor: '#ffffff', backgroundColor: '#0f172a', backgroundOpacity: 0.75 } },
-    light: { bg: '#f8fafc', cartoon: '#3b5fa8', cartoonOpacity: 0.45,
+    light: { bg: '#f8fafc', cartoon: '#3b5fa8', cartoonOpacity: 0.6,
              surface: '#6b8fd6', label: { fontColor: '#0f172a', backgroundColor: '#ffffff', backgroundOpacity: 0.85 } }
   };
   var LIG_SCHEME = { prop: 'elem', map: Object.assign({}, $3DmolElemMap(), { C: '#ff4fd8' }) };
@@ -235,12 +266,17 @@ def render_3dmol(pdbqt_content: str, receptor_content: str = "", height: int = 4
   function applyStyles() {
     var T = THEMES[theme];
     v.setBackgroundColor(T.bg);
+    var sw = document.getElementById('sw-rec');
+    if (sw) sw.style.background = T.cartoon;
     if (recM) {
       v.setStyle({ model: recM },
                  { cartoon: { color: T.cartoon, opacity: T.cartoonOpacity } });
+      // Side chains only: the backbone is already drawn as cartoon, and
+      // repeating it as sticks is what buries the ligand in green.
       var sels = contactSel();
       for (var i = 0; i < sels.length; i++) {
-        v.addStyle(sels[i], { stick: { radius: 0.18, colorscheme: CON_SCHEME } });
+        var sc = Object.assign({}, sels[i], { not: { atom: ['N', 'C', 'O'] } });
+        v.addStyle(sc, { stick: { radius: 0.15, colorscheme: CON_SCHEME } });
       }
     }
     if (ligM) {
@@ -277,7 +313,9 @@ def render_3dmol(pdbqt_content: str, receptor_content: str = "", height: int = 4
       v = $3Dmol.createViewer(document.getElementById('v3d'),
                               { backgroundColor: THEMES[theme].bg });
       if (RECEPTOR.trim().length) recM = v.addModel(RECEPTOR, 'pdb');
-      if (LIGAND.trim().length)   ligM = v.addModel(LIGAND, 'pdb');
+      // keepH: 3Dmol's PDB parser drops hydrogens by default, which would
+      // silently lose the polar H that make the H-bonds worth looking at.
+      if (LIGAND.trim().length)   ligM = v.addModel(LIGAND, 'pdb', { keepH: true });
       document.getElementById('ncon').innerText = CONTACTS.length;
       applyStyles();
       home();
@@ -330,10 +368,26 @@ def render_3dmol(pdbqt_content: str, receptor_content: str = "", height: int = 4
 </script>
 """
 
+    def _js(obj) -> str:
+        """JSON safe to embed in a <script> block.
+
+        json.dumps leaves '<' alone, so a PDBQT line containing '</script>'
+        would close the script element early and break the whole viewer.
+        Escaping < > & (and the two line separators JS treats as newlines)
+        keeps the payload inert while staying valid JSON.
+        """
+        return (_json.dumps(obj)
+                .replace("<", "\\u003c")
+                .replace(">", "\\u003e")
+                .replace("&", "\\u0026")
+                .replace(" ", "\\u2028")
+                .replace(" ", "\\u2029"))
+
     return (tpl.replace("__H__", str(height))
-               .replace("__REC__", _json.dumps(receptor_pdb))
-               .replace("__LIG__", _json.dumps(ligand_pdb))
-               .replace("__CON__", _json.dumps(contacts)))
+               .replace("__CUT__", f"{float(contact_cutoff):g}")
+               .replace("__REC__", _js(receptor_pdb))
+               .replace("__LIG__", _js(ligand_pdb))
+               .replace("__CON__", _js(contacts)))
 
 
 import json
