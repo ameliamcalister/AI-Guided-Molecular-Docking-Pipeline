@@ -737,8 +737,9 @@ with st.sidebar:
     target_aff     = st.number_input("Target affinity (abs kcal/mol)", value=13.0, format="%.1f")
     n_suggestions  = st.slider("Suggestions per cycle", 1, 5, 3)
     exhaustiveness = st.select_slider("Vina Exhaustiveness", [8,16,32], value=8)
-    fix_seed       = st.toggle("Fix random seed (reproducible)", value=False,
-                                help="Uses seed 42 for Vina. Makes docking scores reproducible between runs.")
+    fix_seed       = st.toggle("Fix random seed (reproducible)", value=True,
+                                help="Uses seed 42 for Vina. Without it Vina picks a random seed "
+                                     "each run and scores vary between runs of the same compound.")
     backend        = st.selectbox("LLM Backend", ["claude","ollama"], index=0)
     model_override = st.text_input("Model override (optional)", placeholder="claude-sonnet-4-6")
     notes_input    = st.text_area("Notes for AI", height=60)

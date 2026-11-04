@@ -1,3 +1,15 @@
+---
+title: AI-Guided Docking Pipeline
+emoji: 🧬
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_port: 8501
+pinned: false
+license: mit
+short_description: AI-guided structure-based drug design with AutoDock Vina
+---
+
 # AI-Guided Docking Pipeline
 
 A generalised, AI-guided structure-based drug design pipeline. Works with any protein

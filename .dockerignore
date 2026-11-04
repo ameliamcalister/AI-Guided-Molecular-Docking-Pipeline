@@ -7,3 +7,5 @@ tests
 patches
 .env
 .venv
+eval
+.streamlit/secrets.toml

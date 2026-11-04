@@ -1,3 +1,7 @@
-anthropic>=0.40.0
-rdkit>=2023.9.1
-streamlit>=1.35.0
+# Pinned exactly so that rebuilding the image gives the same environment.
+# Docking scores come from the Vina binary rather than from these, but RDKit
+# decides which suggested SMILES are accepted, so its version does affect
+# which compounds get docked. Vina and Open Babel come from apt; see Dockerfile.
+anthropic==1.13.0
+rdkit==2025.9.6
+streamlit==1.63.0
