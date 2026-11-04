@@ -1,17 +1,11 @@
 # AI-Guided Docking Pipeline
 
 A generalised, AI-guided structure-based drug design pipeline. Works with any protein
-<<<<<<< HEAD
-target, any PDB structure, and any binding site (not limited to MRP1). It parses AutoDock
-Vina logs, retrieves live ChEMBL reference data, auto-detects residue contacts, builds a
-target-specific system prompt, calls Claude (or a local Ollama model) for scaffold
-=======
 target, any PDB structure, and any binding site (initially built for but not limited to MRP1). 
 Parses AutoDock Vina logs, retrieves live ChEMBL reference data, auto-detects residue contacts,
 builds a target-specific system prompt, calls Claude (or a local Ollama model) for scaffold
->>>>>>> 46cbe4a8c1b3f859f7dca85a491beec55856bd0c
 modification suggestions, validates returned SMILES with RDKit, and can auto-dock
-candidates across multiple autonomous optimisation cycles providing an binding affinity output 
+candidates across multiple autonomous optimisation cycles providing a binding affinity output 
 (kcal/mol).
 
 <img width="2844" height="1546" alt="image" src="https://github.com/user-attachments/assets/f05e4a43-fe17-4e70-ab90-d4c842227d3e" />
@@ -85,8 +79,6 @@ python docking_pipeline.py \
     --yes
 ```
 
-<<<<<<< HEAD
-=======
 Example from the MRP1 project specifically:
 
 ```bash
@@ -100,7 +92,6 @@ python docking_pipeline.py \
     --mode affinity --chembl --n 3 --autodock --yes
 ```
 
->>>>>>> 46cbe4a8c1b3f859f7dca85a491beec55856bd0c
 Output: `<name>_report.txt` with AI suggestions, RDKit validation, and docking results.
 
 ## How a cycle works
@@ -163,16 +154,7 @@ Three tests are marked `xfail` on purpose: they document known issues listed in 
 ## Notes
 
 - Receptor/ligand structure files (`*.pdb`, `*.pdbqt`) and generated reports are excluded
-<<<<<<< HEAD
   from version control by default (see `.gitignore`).
 - Docking scores are computational estimates, not measured binding affinities.
 - Built as part of a BSc final year project on computational MRP1 (ABCC1) inhibitor
   discovery at Imperial College London, generalised to support arbitrary targets.
-
-<!-- TODO: choose a licence (MIT is common for portfolio projects) and add a LICENSE file -->
-=======
-  from version control by default — see `.gitignore`.
-- Built as part of an BSc final year project on computational MRP1 (ABCC1) inhibitor
-  discovery at Imperial College London, generalised to support arbitrary targets.
-
->>>>>>> 46cbe4a8c1b3f859f7dca85a491beec55856bd0c
