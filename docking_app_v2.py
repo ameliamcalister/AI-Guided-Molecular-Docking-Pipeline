@@ -79,294 +79,256 @@ except ImportError as e:
     PIPELINE_LOADED = False
     PIPELINE_ERROR  = str(e)
 
+# ── Run provenance (SQLite) ───────────────────────────────────────────────────
+import hashlib
+sys.path.insert(0, str(pipeline_dir / "src"))
+from provenance import RunStore
+RUNS_DB = os.environ.get("RUNS_DB", str(pipeline_dir / "data" / "runs.db"))
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # 3DMOL VIEWER HELPER
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def render_3dmol(pdbqt_content: str, receptor_content: str = "", height: int = 480) -> str:
     """
-    Enhanced 3Dmol viewer with:
-    - Receptor shown as cartoon + transparent surface for context
-    - Brightness/opacity slider for receptor
-    - Ligand shown as balls-and-sticks coloured by element
-    - Residues near ligand highlighted
-    - Controls: Reset, Surface, Spin, receptor opacity slider
+    Render a docked pose with receptor context using 3Dmol.js.
+
+    - Ligand: best pose (first MODEL block of the PDBQT), yellow sticks
+    - Receptor: full backbone cartoon, blue
+    - Contact residues (within 8 A of any ligand atom): green sticks, computed
+      in Python so we do not depend on 3Dmol's `within` selector semantics
     """
     import json as _json
 
-    # Extract first MODEL block (best pose)
-    lines = pdbqt_content.split("\n")
+    # ── Ligand: first MODEL block = best pose ─────────────────────────────────
+    lines = (pdbqt_content or "").split("\n")
     model_lines, in_model = [], False
     for line in lines:
         if line.startswith("MODEL"):
-            in_model = True; model_lines = []; continue
-        if line.startswith("ENDMDL"): break
-        if in_model and line.startswith(("ATOM","HETATM","CONECT")):
+            in_model = True
+            model_lines = []
+            continue
+        if line.startswith("ENDMDL"):
+            break
+        if in_model and line.startswith(("ATOM", "HETATM")):
             model_lines.append(line)
     if not model_lines:
-        model_lines = [l for l in lines if l.startswith(("ATOM","HETATM"))]
-    ligand_pdb = "\n".join(model_lines)
+        model_lines = [l for l in lines if l.startswith(("ATOM", "HETATM"))]
 
-    # Get ligand centre for nearby residue highlighting
     lig_coords = []
     for line in model_lines:
-        if line.startswith(("ATOM","HETATM")):
-            try:
-                lig_coords.append((float(line[30:38]), float(line[38:46]), float(line[46:54])))
-            except: pass
-    if lig_coords:
-        lx = sum(c[0] for c in lig_coords)/len(lig_coords)
-        ly = sum(c[1] for c in lig_coords)/len(lig_coords)
-        lz = sum(c[2] for c in lig_coords)/len(lig_coords)
-    else:
-        lx, ly, lz = 0, 0, 0
-
-    # Receptor: sample every 4th atom for full protein coverage
-    # This gives ~3000 atoms from 12000, covering the entire structure
-    rec_all = [l for l in receptor_content.split("\n") if l.startswith(("ATOM","HETATM"))]
-    # Try CA atoms first using strict column check
-    rec_ca_lines = [l for l in rec_all if len(l) > 15 and l[12:16].strip() in ("CA", "C4'")]
-    # If CA detection gives good coverage use it, otherwise sample every 4th atom
-    if len(rec_ca_lines) >= 100:
-        receptor_pdb = "\n".join(rec_ca_lines[:2000])
-    else:
-        # Sample every 4th atom — gives full spatial coverage of entire protein
-        sampled = rec_all[::4][:2500]
-        receptor_pdb = "\n".join(sampled)
-
-    # All receptor atoms near ligand (within 8 Å) for binding site highlight
-    nearby_lines = []
-    for line in rec_all:
         try:
-            rx,ry,rz = float(line[30:38]),float(line[38:46]),float(line[46:54])
-            if ((rx-lx)**2+(ry-ly)**2+(rz-lz)**2)**0.5 < 8.0:
-                nearby_lines.append(line)
-        except: pass
-    nearby_pdb = "\n".join(nearby_lines[:300])
+            lig_coords.append((float(line[30:38]), float(line[38:46]), float(line[46:54])))
+        except (ValueError, IndexError):
+            pass
 
-    ligand_json  = _json.dumps(ligand_pdb)
-    receptor_json= _json.dumps(receptor_pdb)
-    nearby_json  = _json.dumps(nearby_pdb)
-    has_receptor = bool(rec_all)
+    # Truncate to 78 cols: drops the AutoDock type/charge columns so 3Dmol
+    # infers elements from atom names instead of choking on "OA"/"HD"/"NA".
+    ligand_pdb = "\n".join(l[:78] for l in model_lines)
 
-    html = f"""<!DOCTYPE html>
-<html>
-<head>
-<style>
-  * {{ box-sizing:border-box; margin:0; padding:0; }}
-  body {{ background:#0d0f14; font-family:monospace; }}
-  #viewer {{ width:100%; height:{height}px; position:relative; }}
-  .top-bar {{ position:absolute; top:0; left:0; right:0; z-index:100;
-              display:flex; align-items:center; gap:6px; padding:8px;
-              background:linear-gradient(#0d0f14cc,transparent); }}
-  .badge {{ background:#064e3b; color:#34d399; font-size:11px;
-            padding:3px 8px; border-radius:4px; white-space:nowrap; }}
-  .ctrl-btn {{ background:#13161e; border:1px solid #2e3748; color:#e2e8f0;
-               padding:4px 10px; border-radius:5px; cursor:pointer; font-size:11px; }}
-  .ctrl-btn:hover {{ background:#1e2330; }}
-  .ctrl-btn.active {{ background:#064e3b; border-color:#34d399; color:#34d399; }}
-  .slider-wrap {{ display:flex; align-items:center; gap:5px; margin-left:auto; }}
-  .slider-label {{ color:#64748b; font-size:10px; white-space:nowrap; }}
-  #opSlider {{ width:80px; accent-color:#00d4aa; }}
-  .info {{ position:absolute; bottom:8px; left:8px; color:#475569;
-           font-size:10px; z-index:100; }}
-  .legend {{ position:absolute; bottom:8px; right:8px; z-index:100;
-             display:flex; flex-direction:column; gap:3px; align-items:flex-end; }}
-  .leg-item {{ display:flex; align-items:center; gap:5px; font-size:10px; color:#94a3b8; }}
-  .leg-dot {{ width:10px; height:10px; border-radius:50%; }}
-</style>
-</head>
-<body>
-<div id="viewer">
-  <div class="top-bar">
-    <div class="badge" id="status">Loading...</div>
-    <button class="ctrl-btn" onclick="resetView()">⟳ Reset</button>
-    <button class="ctrl-btn" id="surfBtn" onclick="toggleSurface()">◈ Surface</button>
-    <button class="ctrl-btn" id="spinBtn" onclick="toggleSpin()">↻ Spin</button>
-    <button class="ctrl-btn" id="styleBtn" onclick="toggleLigStyle()">⬡ Style</button>
-    <div class="slider-wrap">
-      <span class="slider-label">Receptor opacity</span>
-      <input type="range" id="opSlider" min="0" max="100" value="55"
-             oninput="setReceptorOpacity(this.value/100)">
-      <span class="slider-label" id="opVal">55%</span>
-    </div>
-  </div>
-  <div class="info">Scroll to zoom &nbsp;·&nbsp; Drag to rotate &nbsp;·&nbsp; Right-drag to pan</div>
-  <div class="legend">
-    <div class="leg-item"><div class="leg-dot" style="background:#4A90D9"></div>Receptor</div>
-    <div class="leg-item"><div class="leg-dot" style="background:#00d4aa"></div>Binding site</div>
-    <div class="leg-item"><div class="leg-dot" style="background:#FFD700"></div>Ligand</div>
+    # ── Receptor: keep ALL atoms. Cartoon needs intact backbone connectivity,
+    #    so the old rec_all[::4] sampling could never render a cartoon. ───────
+    rec_all = [l for l in (receptor_content or "").split("\n")
+               if l.startswith(("ATOM", "HETATM"))]
+    receptor_pdb = "\n".join(l[:78] for l in rec_all)
+
+    # ── Contact residues within 8 A of ANY ligand atom (not the centroid) ────
+    contacts = []
+    if lig_coords:
+        seen, cutoff_sq = set(), 8.0 ** 2
+        for line in rec_all:
+            try:
+                rx, ry, rz = float(line[30:38]), float(line[38:46]), float(line[46:54])
+            except (ValueError, IndexError):
+                continue
+            for lx, ly, lz in lig_coords:
+                if (rx - lx) ** 2 + (ry - ly) ** 2 + (rz - lz) ** 2 < cutoff_sq:
+                    chain = line[21:22].strip() or "A"
+                    resi, resn = line[22:26].strip(), line[17:20].strip()
+                    if resi and (chain, resi) not in seen:
+                        seen.add((chain, resi))
+                        contacts.append({"chain": chain, "resi": resi, "resn": resn})
+                    break
+
+    tpl = r"""
+<div style="position:relative;width:100%;height:__H__px;">
+  <div id="v3d" style="width:100%;height:100%;background:#0d1117;border-radius:8px;"></div>
+  <div id="msg" style="position:absolute;top:10px;left:12px;color:#f87171;
+       font:12px ui-monospace,monospace;pointer-events:none;"></div>
+  <div id="info" style="position:absolute;bottom:10px;left:12px;color:#64748b;
+       font:11px ui-monospace,monospace;pointer-events:none;"></div>
+  <div style="position:absolute;top:8px;right:8px;display:flex;gap:6px;">
+    <button id="b-reset">Reset</button>
+    <button id="b-surf">Surface</button>
+    <button id="b-spin">Spin</button>
   </div>
 </div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/3Dmol/2.0.3/3Dmol-min.js"></script>
+<script src="https://3Dmol.org/build/3Dmol-min.js"></script>
 <script>
-var ligandData  = {ligand_json};
-var recData     = {receptor_json};
-var nearbyData  = {nearby_json};
-var hasRec      = {'true' if has_receptor else 'false'};
+(function () {
+  var RECEPTOR = __REC__;
+  var LIGAND   = __LIG__;
+  var CONTACTS = __CON__;
+  var v = null, recM = null, ligM = null, surfOn = false, spinning = false;
 
-var viewer     = null;
-var surfaceOn  = false;
-var spinning   = false;
-var ligStyle   = 0;
-var recOpacity = 0.55;
+  function msg(t)  { var e = document.getElementById('msg');  if (e) e.innerText = t; }
+  function info(t) { var e = document.getElementById('info'); if (e) e.innerText = t; }
 
-function initViewer() {{
-  viewer = $3Dmol.createViewer(document.getElementById('viewer'), {{
-    backgroundColor: '#0d0f14', antialias: true,
-  }});
-  loadMolecules();
-}}
+  function contactSel() {
+    var byChain = {};
+    for (var i = 0; i < CONTACTS.length; i++) {
+      var c = CONTACTS[i];
+      (byChain[c.chain] = byChain[c.chain] || []).push(parseInt(c.resi, 10));
+    }
+    var sels = [];
+    for (var ch in byChain) sels.push({ model: recM, chain: ch, resi: byChain[ch] });
+    return sels;
+  }
 
-function loadMolecules() {{
-  try {{
-    var ligIdx = 0;
+  function init() {
+    try {
+      v = $3Dmol.createViewer(document.getElementById('v3d'),
+                              { backgroundColor: '#0d1117' });
 
-    if (hasRec && recData.trim().length > 10) {{
-      // Full receptor as cartoon
-      viewer.addModel(recData, 'pdb');
-      viewer.setStyle({{model:0}}, {{
-        cartoon: {{ color:'spectrum', opacity: recOpacity, thickness:0.4 }}
-      }});
-      ligIdx = 1;
+      if (RECEPTOR.trim().length) {
+        recM = v.addModel(RECEPTOR, 'pdb');
+        v.setStyle({ model: recM }, { cartoon: { color: '#4a7fd4', opacity: 0.75 } });
+      }
 
-      // Nearby residues highlighted differently
-      if (nearbyData.trim().length > 10) {{
-        viewer.addModel(nearbyData, 'pdb');
-        viewer.setStyle({{model:2}}, {{
-          cartoon: {{ color:'#4A90D9', opacity:0.85, thickness:0.5 }},
-        }});
-        viewer.addStyle({{model:2}}, {{
-          stick: {{ color:'#4A90D9', radius:0.06, opacity:0.5 }}
-        }});
-      }}
-    }}
+      if (LIGAND.trim().length > 0) {
+        ligM = v.addModel(LIGAND, 'pdb');
+        v.setStyle({ model: ligM },
+                   { stick:  { radius: 0.22, colorscheme: 'yellowCarbon' },
+                     sphere: { radius: 0.32, colorscheme: 'yellowCarbon' } });
+      }
 
-    // Ligand
-    viewer.addModel(ligandData, 'pdb');
-    setLigandStyle(ligIdx, 0);
+      if (recM && CONTACTS.length) {
+        var sels = contactSel();
+        for (var i = 0; i < sels.length; i++) {
+          v.addStyle(sels[i], { stick: { radius: 0.12, colorscheme: 'greenCarbon' } });
+        }
+      }
 
-    viewer.zoomTo({{model:ligIdx}});
-    viewer.render();
+      if (ligM) {
+        v.zoomTo({ model: ligM });
+        v.zoom(0.55);
+        info(CONTACTS.length + ' contact residues within 8 A');
+      } else {
+        v.zoomTo();
+        msg('No valid docked pose for this compound');
+      }
+      v.render();
+    } catch (e) {
+      msg('Viewer error: ' + e.message);
+    }
+  }
 
-    var nAtoms = (ligandData.match(/^(?:ATOM|HETATM)/mg)||[]).length;
-    var nRecRes = (recData.match(/^(?:ATOM|HETATM)/mg)||[]).length;
-    document.getElementById('status').textContent =
-      nAtoms + ' ligand atoms · ' +
-      (hasRec ? nRecRes + ' receptor residues (Cα)' : 'no receptor');
-    document.getElementById('status').style.background = '#064e3b';
+  document.getElementById('b-reset').onclick = function () {
+    if (!v) return;
+    if (ligM) { v.zoomTo({ model: ligM }); v.zoom(0.55); } else { v.zoomTo(); }
+    v.render();
+  };
+  document.getElementById('b-surf').onclick = function () {
+    if (!v || !recM) return;
+    if (surfOn) { v.removeAllSurfaces(); surfOn = false; }
+    else {
+      var sels = CONTACTS.length ? contactSel() : [{ model: recM }];
+      for (var i = 0; i < sels.length; i++) {
+        v.addSurface($3Dmol.SurfaceType.VDW, { opacity: 0.55, color: '#4a7fd4' }, sels[i]);
+      }
+      surfOn = true;
+    }
+    v.render();
+  };
+  document.getElementById('b-spin').onclick = function () {
+    if (!v) return; spinning = !spinning; v.spin(spinning);
+  };
 
-    window._ligIdx = ligIdx;
-
-  }} catch(e) {{
-    document.getElementById('status').textContent = 'Error: ' + e.message;
-    document.getElementById('status').style.background = '#450a0a';
-    document.getElementById('status').style.color = '#f87171';
-  }}
-}}
-
-function setLigandStyle(idx, style) {{
-  viewer.setStyle({{model:idx}}, {{}});
-  if (style === 0) {{
-    viewer.setStyle({{model:idx}}, {{
-      stick: {{ colorscheme:'elementWithCarbon', radius:0.15 }}
-    }});
-    viewer.addStyle({{model:idx}}, {{
-      sphere: {{ colorscheme:'elementWithCarbon', radius:0.28 }}
-    }});
-  }} else if (style === 1) {{
-    viewer.setStyle({{model:idx}}, {{
-      stick: {{ colorscheme:'elementWithCarbon', radius:0.20 }}
-    }});
-  }} else {{
-    viewer.setStyle({{model:idx}}, {{
-      sphere: {{ colorscheme:'elementWithCarbon', radius:0.35 }}
-    }});
-  }}
-  viewer.render();
-}}
-
-function resetView() {{
-  if (!viewer) return;
-  viewer.zoomTo({{model: window._ligIdx||0}});
-  viewer.render();
-}}
-
-function toggleSurface() {{
-  if (!viewer) return;
-  if (!surfaceOn) {{
-    viewer.addSurface($3Dmol.SurfaceType.VDW,
-      {{ opacity:0.55, color:'#00d4aa' }},
-      {{ model: window._ligIdx||0 }});
-    surfaceOn = true;
-    document.getElementById('surfBtn').classList.add('active');
-  }} else {{
-    viewer.removeAllSurfaces();
-    surfaceOn = false;
-    document.getElementById('surfBtn').classList.remove('active');
-  }}
-  viewer.render();
-}}
-
-function toggleSpin() {{
-  if (!viewer) return;
-  if (!spinning) {{
-    viewer.spin(true);
-    spinning = true;
-    document.getElementById('spinBtn').classList.add('active');
-  }} else {{
-    viewer.spin(false);
-    spinning = false;
-    document.getElementById('spinBtn').classList.remove('active');
-  }}
-}}
-
-function toggleLigStyle() {{
-  if (!viewer) return;
-  ligStyle = (ligStyle + 1) % 3;
-  setLigandStyle(window._ligIdx||0, ligStyle);
-  var labels = ['⬡ Ball+Stick','— Stick','● Sphere'];
-  document.getElementById('styleBtn').textContent = labels[ligStyle];
-}}
-
-function setReceptorOpacity(val) {{
-  if (!viewer) return;
-  recOpacity = val;
-  document.getElementById('opVal').textContent = Math.round(val*100) + '%';
-  if (hasRec) {{
-    viewer.setStyle({{model:0}}, {{
-      cartoon: {{ color:'spectrum', opacity:val, thickness:0.4 }}
-    }});
-    viewer.render();
-  }}
-}}
-
-if (typeof $3Dmol !== 'undefined' && $3Dmol.createViewer) {{
-  initViewer();
-}} else {{
-  window.addEventListener('load', function() {{
-    // Poll until 3Dmol is ready — CDN may load after window.load
-    var attempts = 0;
-    var poll = setInterval(function() {{
-      attempts++;
-      if (typeof $3Dmol !== 'undefined' && $3Dmol.createViewer) {{
-        clearInterval(poll);
-        initViewer();
-      }}
-      if (attempts > 50) {{
-        clearInterval(poll);
-        document.getElementById('status').textContent = 'Error: 3Dmol CDN failed to load';
-        document.getElementById('status').style.background = '#450a0a';
-        document.getElementById('status').style.color = '#f87171';
-      }}
-    }}, 100);
-  }});
-}}
+  // The iframe 'load' event has usually already fired by the time this inline
+  // script runs, so poll for the library instead of listening for 'load'.
+  var tries = 0;
+  (function wait() {
+    if (typeof $3Dmol !== 'undefined') { init(); return; }
+    if (++tries > 100) { msg('Could not load 3Dmol.js (network blocked?)'); return; }
+    setTimeout(wait, 100);
+  })();
+})();
 </script>
-</body>
-</html>"""
-    return html
+"""
 
+    return (tpl.replace("__H__", str(height))
+               .replace("__REC__", _json.dumps(receptor_pdb))
+               .replace("__LIG__", _json.dumps(ligand_pdb))
+               .replace("__CON__", _json.dumps(contacts)))
+
+
+import json
+
+def build_viewer_html(receptor_pdb: str, ligand_pdbqt: str, height: int = 600) -> str:
+    rec = json.dumps(receptor_pdb or "")
+    lig = json.dumps(ligand_pdbqt or "")
+    return f"""
+<div style="position:relative;width:100%;height:{height}px;">
+  <div id="viewer" style="width:100%;height:100%;background:#0d1117;border-radius:8px;"></div>
+  <div id="msg" style="position:absolute;top:10px;left:10px;color:#f0a;font:12px monospace;"></div>
+  <div style="position:absolute;top:10px;right:10px;display:flex;gap:6px;">
+    <button onclick="resetView()">Reset</button>
+    <button onclick="toggleSurface()">Surface</button>
+    <button onclick="toggleSpin()">Spin</button>
+  </div>
+</div>
+<script src="https://3Dmol.org/build/3Dmol-min.js"></script>
+<script>
+const RECEPTOR = {rec};
+const LIGAND   = {lig};
+let v, recM, ligM = null, surf = null, spinning = false, surfOn = false;
+
+function init() {{
+  try {{
+    v = $3Dmol.createViewer(document.getElementById('viewer'), {{backgroundColor:'#0d1117'}});
+    recM = v.addModel(RECEPTOR, 'pdb');
+    const hasLig = LIGAND.trim().length > 0 && /^(ATOM|HETATM)/m.test(LIGAND);
+    if (hasLig) ligM = v.addModel(LIGAND, 'pdbqt');
+
+    if (ligM && ligM.selectedAtoms({{}}).length > 0) {{
+      const ligSel = {{model: ligM}};
+      // show only receptor atoms within 15 A of the ligand
+      v.setStyle({{model: recM}}, {{}});
+      v.setStyle({{model: recM, within: {{distance: 15, sel: ligSel}}}},
+                 {{cartoon: {{color:'#4a7fd4', opacity:0.7}}}});
+      v.setStyle({{model: recM, within: {{distance: 5, sel: ligSel}}}},
+                 {{cartoon: {{color:'#4ecca3'}}, stick: {{radius:0.12, colorscheme:'greenCarbon'}}}});
+      ligM.setStyle({{}}, {{stick: {{radius:0.25, colorscheme:'yellowCarbon'}}}});
+      v.zoomTo(ligSel);
+      v.zoom(0.6);
+    }} else {{
+      ligM = null;
+      document.getElementById('msg').innerText = 'No valid docked pose for this compound';
+      v.setStyle({{model: recM}}, {{cartoon: {{color:'#4a7fd4', opacity:0.7}}}});
+      v.zoomTo();
+    }}
+    v.render();
+  }} catch (e) {{
+    document.getElementById('msg').innerText = 'Viewer error: ' + e.message;
+  }}
+}}
+
+function resetView() {{ if (!v) return; ligM ? (v.zoomTo({{model: ligM}}), v.zoom(0.6)) : v.zoomTo(); v.render(); }}
+function toggleSurface() {{
+  if (!v || !recM) return;
+  if (surfOn) {{ v.removeAllSurfaces(); surfOn = false; }}
+  else {{
+    const sel = ligM ? {{model: recM, within: {{distance: 15, sel: {{model: ligM}}}}}} : {{model: recM}};
+    v.addSurface($3Dmol.SurfaceType.VDW, {{opacity:0.5, color:'#4a7fd4'}}, sel);
+    surfOn = true;
+  }}
+  v.render();
+}}
+function toggleSpin() {{ if (!v) return; spinning = !spinning; v.spin(spinning); }}
+
+window.addEventListener('load', init);
+</script>
+"""
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -408,6 +370,7 @@ def run_initial_dock(
     work_dir: Path,
     exhaustiveness: int = 8,
     name: str = "initial",
+    seed: int = 0,
 ) -> tuple[float | None, Path | None, Path | None]:
     """
     Convert SMILES → PDBQT and dock against receptor.
@@ -416,7 +379,7 @@ def run_initial_dock(
     pdbqt = smiles_to_pdbqt(smiles, name, work_dir)
     if pdbqt is None:
         return None, None, None
-    affinity, docked = run_vina(pdbqt, name, work_dir, str(receptor_path), grid, exhaustiveness)
+    affinity, docked = run_vina(pdbqt, name, work_dir, str(receptor_path), grid, exhaustiveness, seed=seed)
     log_path = work_dir / f"{name}_vina.log"
     return affinity, docked, log_path if log_path.exists() else None
 
@@ -513,9 +476,7 @@ def run_one_cycle(
             docking_results.append({**result, "docked": False, "reason": "obabel failed"})
             continue
 
-        # Add seed to grid for reproducibility
-        grid_with_seed = {**grid, "seed": vina_seed}
-        affinity, docked = run_vina(pdbqt_out, name_i, dock_dir, str(receptor_path), grid, exhaustiveness)
+        affinity, docked = run_vina(pdbqt_out, name_i, dock_dir, str(receptor_path), grid, exhaustiveness, seed=vina_seed)
         if docked is None:
             docking_results.append({**result, "docked": False, "reason": "Vina failed"})
             continue
@@ -705,6 +666,7 @@ try:
             work_dir=tmp_path,
             exhaustiveness=exhaustiveness,
             name="initial",
+            seed=vina_seed,
         )
         if init_docked is None:
             st.error("❌ Initial docking failed. Check your SMILES string and receptor file.")
@@ -768,6 +730,28 @@ overall_best_pdbqt    = ligand_pdbqt_bytes
 progress = st.progress(0)
 status   = st.empty()
 
+# Record this run: parameters, software versions, and every docked compound.
+store  = RunStore(RUNS_DB)
+run_id = store.start_run(
+    target=target_name,
+    params={
+        "pdb_id": pdb_id or "unknown", "grid": grid,
+        "exhaustiveness": exhaustiveness, "vina_seed": vina_seed,
+        "backend": backend, "model": model_override or "default",
+        "n_suggestions": n_suggestions, "n_cycles": n_total_cycles,
+        "mode": mode, "target_affinity": target_aff,
+        "auto_loop": auto_loop, "plateau_stop": plateau_stop,
+        "numbering_offset": int(numbering_offset),
+        "input_smiles": current_smiles, "chembl_id": resolved_chembl_id,
+        "receptor_sha256": hashlib.sha256(receptor_bytes).hexdigest(),
+        "history_input": history_input,
+    },
+)
+store.add_result(run_id, ligand_id="input", smiles=current_smiles,
+                 score=log_data["best_affinity"], iteration=0,
+                 extra={"role": "input compound"})
+run_status = "cancelled"  # stays 'cancelled' if Streamlit interrupts the script mid-run
+
 try:
     for cycle_i in range(1, n_total_cycles + 1):
 
@@ -809,6 +793,21 @@ try:
             vina_seed         = vina_seed,
         )
         all_cycle_results.append(cycle_result)
+
+        for j, dr in enumerate(cycle_result["docking_results"], 1):
+            pose_path = None
+            if dr.get("pdbqt_path"):  # copy out of the temp folder, which is deleted at the end
+                pose_dir = Path(RUNS_DB).parent / "poses" / run_id
+                pose_dir.mkdir(parents=True, exist_ok=True)
+                pose_path = str(shutil.copy(dr["pdbqt_path"], pose_dir / Path(dr["pdbqt_path"]).name))
+            store.add_result(
+                run_id, ligand_id=dr.get("compound_name") or f"c{cycle_i}_s{j}",
+                smiles=dr["smiles"], score=dr.get("affinity"), iteration=cycle_i,
+                pose_path=pose_path,
+                extra={"docked": bool(dr.get("docked")), "reason": dr.get("reason"),
+                       "props": dr.get("props"), "issues": dr.get("issues"),
+                       "mode": cycle_result["iter_mode"]},
+            )
 
         # Update history
         if cycle_result["best_affinity"]:
@@ -978,11 +977,15 @@ try:
 
     progress.progress(100)
     status.markdown("✅ Pipeline complete.")
+    run_status = "completed"
 
 except Exception as e:
+    run_status = "failed"
     st.error(f"Pipeline error: {e}")
     import traceback
     st.code(traceback.format_exc())
 
 finally:
+    store.finish_run(run_id, run_status)
+    store.close()
     shutil.rmtree(tmp_dir, ignore_errors=True)

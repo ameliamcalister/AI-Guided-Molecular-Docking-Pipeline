@@ -1,0 +1,20 @@
+--- /home/claude/originals/docking_pipeline.py	2026-10-10 11:01:21.781345858 +0000
++++ docking_pipeline.py	2026-10-10 11:01:21.822418928 +0000
+@@ -524,7 +524,7 @@
+ 
+ def run_vina(
+     pdbqt_path: Path, name: str, work_dir: Path,
+-    receptor: str, grid: dict, exhaustiveness: int = 8,
++    receptor: str, grid: dict, exhaustiveness: int = 8, seed: int = 0,
+ ) -> tuple[float | None, Path | None]:
+     vina      = find_tool(VINA_PATH, "vina")
+     out_pdbqt = work_dir / f"{name}_docked.pdbqt"
+@@ -544,6 +544,8 @@
+         "--num_modes",      "9",
+         "--energy_range",   "3",
+     ]
++    if seed:
++        cmd += ["--seed", str(seed)]
+     print(f"    Running Vina on {name}...")
+     result = subprocess.run(cmd, capture_output=True, text=True)
+     combined = result.stdout + result.stderr
