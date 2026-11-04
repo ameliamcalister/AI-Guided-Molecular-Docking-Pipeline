@@ -1,11 +1,26 @@
 # AI-Guided Docking Pipeline
 
 A generalised, AI-guided structure-based drug design pipeline. Works with any protein
+<<<<<<< HEAD
 target, any PDB structure, and any binding site (not limited to MRP1). It parses AutoDock
 Vina logs, retrieves live ChEMBL reference data, auto-detects residue contacts, builds a
 target-specific system prompt, calls Claude (or a local Ollama model) for scaffold
+=======
+target, any PDB structure, and any binding site (initially built for but not limited to MRP1). 
+Parses AutoDock Vina logs, retrieves live ChEMBL reference data, auto-detects residue contacts,
+builds a target-specific system prompt, calls Claude (or a local Ollama model) for scaffold
+>>>>>>> 46cbe4a8c1b3f859f7dca85a491beec55856bd0c
 modification suggestions, validates returned SMILES with RDKit, and can auto-dock
-candidates across multiple autonomous optimisation cycles.
+candidates across multiple autonomous optimisation cycles providing an binding affinity output 
+(kcal/mol).
+
+<img width="2844" height="1546" alt="image" src="https://github.com/user-attachments/assets/f05e4a43-fe17-4e70-ab90-d4c842227d3e" />
+<img width="2844" height="1546" alt="image" src="https://github.com/user-attachments/assets/baae5b71-8f94-49c1-92f2-f032cafcd8bf" />
+
+<img width="860" height="523" alt="image" src="https://github.com/user-attachments/assets/8fba674b-7739-4ff5-9fa0-a552a6bf9641" />
+<img width="888" height="540" alt="image" src="https://github.com/user-attachments/assets/3ade9db6-db1f-48cf-a68a-555d86f37e32" />
+<img width="888" height="540" alt="image" src="https://github.com/user-attachments/assets/edc2c149-d2ea-494c-8ff8-db3e12dace59" />
+
 
 Two entry points:
 - `docking_pipeline.py`: command-line pipeline
@@ -70,6 +85,22 @@ python docking_pipeline.py \
     --yes
 ```
 
+<<<<<<< HEAD
+=======
+Example from the MRP1 project specifically:
+
+```bash
+python docking_pipeline.py \
+    --log smiles4_log.txt --smiles "..." \
+    --receptor 5UJA_receptor.pdbqt \
+    --center_x 94.806 --center_y 59.056 --center_z 56.653 \
+    --size_x 21.920 --size_y 21.297 --size_z 23.806 \
+    --target "MRP1 (ABCC1)" --pdb_id 5UJA \
+    --key_residues "Thr1241,Lys332,Gln450,Phe594,Met1092,Trp1245,Tyr1032" \
+    --mode affinity --chembl --n 3 --autodock --yes
+```
+
+>>>>>>> 46cbe4a8c1b3f859f7dca85a491beec55856bd0c
 Output: `<name>_report.txt` with AI suggestions, RDKit validation, and docking results.
 
 ## How a cycle works
@@ -123,12 +154,25 @@ ChEMBL and LLM calls (with fakes, so no key or network is needed), Vina command 
 auto-grid helper, the run store, and real Vina/OpenBabel docking when those tools are installed.
 Three tests are marked `xfail` on purpose: they document known issues listed in `NEXT_STEPS.md`.
 
+## Limitations
+- Validated primarily on one target family (ABC transporters); testing across more diverse
+  binding-site geometries would strengthen the generality claim.
+- LLM-proposed modifications are checked for structural validity (RDKit) but not yet screened
+  against synthesisability.
+  
 ## Notes
 
 - Receptor/ligand structure files (`*.pdb`, `*.pdbqt`) and generated reports are excluded
+<<<<<<< HEAD
   from version control by default (see `.gitignore`).
 - Docking scores are computational estimates, not measured binding affinities.
 - Built as part of a BSc final year project on computational MRP1 (ABCC1) inhibitor
   discovery at Imperial College London, generalised to support arbitrary targets.
 
 <!-- TODO: choose a licence (MIT is common for portfolio projects) and add a LICENSE file -->
+=======
+  from version control by default — see `.gitignore`.
+- Built as part of an BSc final year project on computational MRP1 (ABCC1) inhibitor
+  discovery at Imperial College London, generalised to support arbitrary targets.
+
+>>>>>>> 46cbe4a8c1b3f859f7dca85a491beec55856bd0c
