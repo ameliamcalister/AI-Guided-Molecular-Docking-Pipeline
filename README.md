@@ -4,7 +4,16 @@ A structure-based drug design pipeline that puts an LLM in the optimisation loop
 
 It works with any protein target, PDB structure and binding site. It was built for MRP1 (ABCC1) as part of a BSc final year project at Imperial College London, but is now generalised to any protein target.
 
-Live app: https://ai-guided-molecular-docking-pipeline-ntbanardtcxdmqtdk6yina.streamlit.app/
+## Live app: https://ai-guided-molecular-docking-pipeline-ntbanardtcxdmqtdk6yina.streamlit.app/
+## Try it with example data: (https://github.com/USERNAME/REPO/releases/latest/download/example_data.zip)** 
+
+The file contains:
+
+| File | Upload it as | What it is |
+|------|--------------|------------|
+| `Receptor_MRP1.pdbqt` | Receptor | MRP1 (ABCC1), PDB 5UJA, prepared for Vina |
+| `Ligand_MK571_vina.log` | Vina log (optional) | Known MRP1 ligand |
+| `Docked_Ligand_MK571.pdbqt` | Docked ligand (optional) | The corresponding pose |
 
 Two entry points:
 
