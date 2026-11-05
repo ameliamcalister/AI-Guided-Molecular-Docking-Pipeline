@@ -9,6 +9,7 @@ Live app: https://ai-guided-molecular-docking-pipeline-ntbanardtcxdmqtdk6yina.st
 Two entry points:
 
 docking_pipeline.py — command-line pipeline
+
 docking_app_v2.py — Streamlit web interface, with an autonomous iterative loop, an in-browser 3D pose viewer and plateau-detection auto-stop
 
 <img width="1422" height="773" alt="Screenshot 2026-11-04 at 10 54 16" src="https://github.com/user-attachments/assets/3edabc83-6f75-4b8f-9bdd-f4c3c4d35848" />
