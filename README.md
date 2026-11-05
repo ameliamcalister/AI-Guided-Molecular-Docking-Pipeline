@@ -4,8 +4,8 @@ A structure-based drug design pipeline that puts an LLM in the optimisation loop
 
 It works with any protein target, PDB structure and binding site. It was built for MRP1 (ABCC1) as part of a BSc final year project at Imperial College London, but is now generalised to any protein target.
 
-## Live app: https://ai-guided-molecular-docking-pipeline-ntbanardtcxdmqtdk6yina.streamlit.app/
-## Try it with example data: (https://github.com/USERNAME/REPO/releases/latest/download/example_data.zip)** 
+**Live app**: https://ai-guided-molecular-docking-pipeline-ntbanardtcxdmqtdk6yina.streamlit.app/
+**Try it with example data**: https://github.com/ameliamcalister/AI-Guided-Molecular-Docking-Pipeline/releases/download/example-data/Docking-Pipeline-Example-Files.zip
 
 The file contains:
 
